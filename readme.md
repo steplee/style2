@@ -13,6 +13,6 @@ It requires doing an SVD with columns proportional to square image size, which u
 It definately gives better results, but is not suitable for running on videos. I haven't found a way to
 run the svd at a lower resolution then upscale. Perhaps you can train an MLP to approximate the SVD instead.
 
-Results below (rows are **content**, **style**, **transferred style-to-content**)
-[[doc/ada007350.jpg]]
-[[doc/ada006950.jpg]]
+AdaInRA results below (rows are **content**, **style**, **transferred style-to-content**)
+[[doc/adaRA007350.jpg]]
+[[doc/adaRA006950.jpg]]
