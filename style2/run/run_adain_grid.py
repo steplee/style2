@@ -1,5 +1,6 @@
 from ..adain import *
 import cv2
+import socket, time, subprocess
 
 #CKPT = 'saves/unkAdain.0.pt'
 CKPT = 'saves/unkAdain.1000.pt'
@@ -24,6 +25,7 @@ parser.add_argument('--actionWipe', action='store_true', help='detect scene chan
 parser.add_argument('--noShow', action='store_true', help='dont show window')
 parser.add_argument('--output', default=None, help='save an mp4 file')
 parser.add_argument('--noGrid', action='store_true', help='interpolate styles without interaction')
+parser.add_argument('--seed', type=int, default=5)
 
 parser.add_argument('--src', default=0)
 args = parser.parse_args()
@@ -59,14 +61,12 @@ def get_style_images(n, size):
         if os.path.isdir(d):
             for f in os.listdir(d):
                 if is_image(f): fs.append(os.path.join(d,f))
-    random.seed(4)
+    random.seed(args.seed)
     fs = random.sample(fs,n)
     if os.path.exists('/home/slee/Downloads/IMG_20210108_232459.jpg'):
         fs[0] = '/home/slee/Downloads/IMG_20210108_232459.jpg'
         fs[1] = '/home/slee/Downloads/IMG_20210108_232443.jpg'
     return np.stack([resize_crop(cv2.imread(f)[...,[2,1,0]], s=size) for f in fs])
-
-
 
 
 def main():
@@ -75,7 +75,7 @@ def main():
 
     with torch.no_grad():
         print(' - Loading model.')
-        model = load_adain_model(args.ckpt)
+        model = load_adain_model(args.ckpt, useGan=False)
         print(' - Done loading model.')
 
         # Get random style images
@@ -200,13 +200,23 @@ def main():
                 if args.output is not None:
                     if writer is None:
                         #fcc = cv2.VideoWriter_fourcc(*'mp4v')
-                        fcc = cv2.VideoWriter_fourcc(*'X264')
-                        fcc = cv2.VideoWriter_fourcc(*'AVC1')
+                        #fcc = cv2.VideoWriter_fourcc(*'X264')
+                        #fcc = cv2.VideoWriter_fourcc(*'AVC1')
                         #out = 'appsrc ! videoconvert ! avenc_mpeg4 bitrate=100000 ! mp4mux ! filesink location={}'.format(args.output)
                         out = args.output
                         #writer = cv2.VideoWriter(out, cv2.CAP_FFMPEG, fcc, 25, z.shape[:2][::-1])
-                        writer = cv2.VideoWriter(out, cv2.CAP_GSTREAMER, fcc, 25, z.shape[:2][::-1])
-                    writer.write(z)
+                        #writer = cv2.VideoWriter(out, cv2.CAP_GSTREAMER, fcc, 25, z.shape[:2][::-1])
+
+                        sock_name = '/tmp/vid{}.sock'.format(time.time()//1)
+                        proc = subprocess.Popen('ffmpeg -y -f rawvideo -pix_fmt rgb24 -s:v {}x{} -listen 1 -i unix:{} -pix_fmt yuv420p -c:v libx264 -profile:v high -crf 19 {}' \
+                                .format(*z.shape[:2][::-1], sock_name, out).split(' '))
+                        time.sleep(.5)
+                        sock = socket.socket(socket.AF_UNIX)
+                        sock.connect(sock_name)
+                        writer=sock
+
+                    #writer.write(z)
+                    writer.send(z[...,[2,1,0]].tobytes())
 
 
 

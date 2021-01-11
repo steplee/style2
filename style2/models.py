@@ -5,15 +5,15 @@ from torchvision.ops.misc import FrozenBatchNorm2d
 relu = lambda: nn.LeakyReLU(inplace=True)
 #relu = lambda: nn.ReLU(inplace=True)
 
-def load_adain_model(ckpt):
+def load_adain_model(ckpt, **kw):
     d = torch.load(ckpt)
     clazz = d['clazz'].split("'")[1].split('.')[-1]
     if clazz == 'AdaInModel':
         from .adain import AdaInModel
-        model = AdaInModel({}).cuda().eval()
+        model = AdaInModel(kw).cuda().eval()
     elif clazz == 'AdaInModelRA':
         from .adain2 import AdaInModelRA
-        model = AdaInModelRA({}).cuda().eval()
+        model = AdaInModelRA(kw).cuda().eval()
     model.load_state_dict(d['sd'], strict=False)
     return model
 

@@ -27,6 +27,7 @@ else:
     RELU2 = 7
     RELU3 = 12
     RELU4 = 21
+    RELU5 = 30
 
 def get_encoder_parts():
     layers = list(VGG(True).features[:RELU4])

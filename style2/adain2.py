@@ -6,7 +6,7 @@ from .datasets import *
 from .adain import (
         stdize, unstdize, Unstdize,
         oneway_adain, oneway_adain_with_stats, make_viz,
-        VGG,RELU1,RELU2,RELU3,RELU4)
+        VGG,RELU1,RELU2,RELU3,RELU4,RELU5)
 
 UP = nn.UpsamplingBilinear2d
 #UP = nn.UpsamplingNearest2d
@@ -37,7 +37,7 @@ class Discriminator2(nn.Module):
 
 
 def get_encoder_parts():
-    layers = list(VGG(True).features[:RELU4])
+    layers = list(VGG(True).features[:RELU5])
     layers_ = []
     for layer in layers:
         if isinstance(layer,nn.BatchNorm2d):
@@ -52,7 +52,8 @@ def get_encoder_parts():
     phi2 = vgg[RELU1:RELU2]
     phi3 = vgg[RELU2:RELU3]
     phi4 = vgg[RELU3:RELU4]
-    return nn.ModuleList([phi1,phi2,phi3,phi4])
+    phi5 = vgg[RELU4:RELU5]
+    return nn.ModuleList([phi1,phi2,phi3,phi4,phi5])
 
 def get_decoder_parts():
     #layers_ = list(VGG(True).eval().features)[:RELU4-1][::-1]
@@ -104,7 +105,7 @@ class AdaInModelRA(BaseModule):
     def __init__(self, meta):
         meta.setdefault('title','unkAdainRA')
         meta.setdefault('lambdaContent',1.4)
-        meta.setdefault('lambdaStyle',1.0)
+        meta.setdefault('lambdaStyle',1.4)
         #meta.setdefault('lambdaTV',55)
         meta.setdefault('lambdaTV',-1)
         meta.setdefault('lambdaGan',5)
@@ -114,12 +115,13 @@ class AdaInModelRA(BaseModule):
         #meta['lambdaTV'] = 0
         #meta['lambdaGan'] = 35
         meta['lambdaGan'] = 10
-        meta['lambdaContent'] = 2
+        meta['lambdaContent'] = 5
+        meta['lambdaStyle'] = 2
         super().__init__(meta)
 
         self.enc = get_encoder_parts()
         self.enc.requires_grad_(False)
-        self.encoder = nn.Sequential(*self.enc)
+        #self.encoder = nn.Sequential(*self.enc)
         self.dec = get_decoder_parts()
 
         # Note: My TV loss is applied on grayscale values.
@@ -154,7 +156,9 @@ class AdaInModelRA(BaseModule):
 
         xx, yy = oneway_adain_with_stats(f4[:n], *getStats(f4[n:])), f4[n:]
 
-        xx = rigid_aligment(xx, yy)
+        #xx = rigid_aligment(xx, yy)
+        xx2 = rigid_aligment(F.avg_pool2d(xx,2,2), F.avg_pool2d(yy,2,2))
+        xx = (xx + F.interpolate(xx2, scale_factor=2, mode='bilinear')) / 2
 
         fx4s = self.dec[0](xx)
         fx3s = self.dec[1](oneway_adain_with_stats(fx4s, *getStats(f3[n:])))
@@ -177,9 +181,10 @@ class AdaInModelRA(BaseModule):
             fx3 = fxOld[2] * oldGamma + fx3 * (1-oldGamma)
             fx4 = fxOld[3] * oldGamma + fx4 * (1-oldGamma)
 
+        xx, yy = oneway_adain_with_stats(fx4, stats[6],stats[7]), stats[-1]
         # Blending stats helps avoid rapid, large intensity changes.
         # More could be done to help fix this problem (replace stride with dilation!)
-        #xx, yy = oneway_adain_with_stats(fx4, stats[6],stats[7]), stats[8]
+        '''
         yy = stats[8]
         b,c,h,w = fx4.size()
         xx = fx4.view(b,c,h*w)
@@ -192,10 +197,11 @@ class AdaInModelRA(BaseModule):
             xstd = (xstd.view(b,c,1,1) + self.lastXstats[1]*3) / 4
         xx = ((fx4-xmu)/xstd) * stats[7] + stats[6]
         self.lastXstats = [xmu,xstd]
+        '''
 
-        xx = rigid_aligment(xx,yy)
-        #xx2 = rigid_aligment(F.avg_pool2d(xx,2,2), F.avg_pool2d(yy,2,2))
-        #xx = xx + F.interpolate(xx2, scale_factor=2, mode='bilinear')
+        #xx = rigid_aligment(xx,yy)
+        xx2 = rigid_aligment(F.avg_pool2d(xx,2,2), F.avg_pool2d(yy,2,2))
+        xx = (xx + F.interpolate(xx2, scale_factor=2, mode='bilinear')) / 2
 
         fx4s = self.dec[0](xx)
         fx3s = self.dec[1](oneway_adain_with_stats(fx4s, stats[4],stats[5]))
@@ -205,7 +211,7 @@ class AdaInModelRA(BaseModule):
     def forward_get_stats(self, y):
         stats = []
         y = stdize(y)
-        for blk in self.enc:
+        for blk in self.enc[:4]:
             y = blk(y)
             b,c = y.size(0),y.size(1)
             yy = y.flatten(2)
@@ -223,14 +229,17 @@ class AdaInModelRA(BaseModule):
         s2 = self.enc[1](s1)
         s3 = self.enc[2](s2)
         s4 = self.enc[3](s3)
+        s5 = self.enc[4](s4)
         loss_s = 0
         sw = self.lambdaStyle
-        for s,w in zip((s1,s2,s3,s4),(sw*.8,sw*1,sw*1,sw*1)):
+        for s,w in zip((s1,s2,s3,s4,s5),(sw*.8,sw*1,sw*1,sw*1,sw*3)):
             loss_s = loss_s + w * (
                     (s[:n].flatten(2).mean(2) - s[n:].flatten(2).mean(2)).norm(dim=1).mean() +
                     (s[:n].flatten(2).std(2)  - s[n:].flatten(2).std(2)).norm(dim=1).mean() )
 
         loss_c = (pred['f4'][:n] - s4[n:]).norm(dim=1).mean() * self.lambdaContent
+        loss_c = loss_c + (pred['f2'][:n] - s2[n:]).norm(dim=1).mean() * self.lambdaContent * 4
+        loss_c = loss_c + (pred['f3'][:n] - s3[n:]).norm(dim=1).mean() * self.lambdaContent * 2
 
         loss = loss_s + loss_c
         losses = dict(c=loss_c.item(), s=loss_s.item())
@@ -299,7 +308,7 @@ def main():
     if args.load is not None:
         d = torch.load(args.load)
         ii0 = d['epoch'] + 1
-        model.load_state_dict(d['sd'])
+        model.load_state_dict(d['sd'],strict=False)
     else:
         ii0 = 0
 
