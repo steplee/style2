@@ -14,5 +14,5 @@ It definately gives better results, but is not suitable for running on videos. I
 run the svd at a lower resolution then upscale. Perhaps you can train an MLP to approximate the SVD instead.
 
 AdaInRA results below (rows are **content**, **style**, **transferred style-to-content**)
-[[doc/adaRA007350.jpg]]
-[[doc/adaRA006950.jpg]]
+![](/doc/adaRA006950.jpg)
+![](/doc/adaRA007350.jpg)
